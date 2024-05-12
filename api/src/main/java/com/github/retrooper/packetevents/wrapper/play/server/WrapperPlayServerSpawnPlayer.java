@@ -30,7 +30,6 @@ import com.github.retrooper.packetevents.protocol.world.Location;
 import com.github.retrooper.packetevents.util.MathUtil;
 import com.github.retrooper.packetevents.util.Vector3d;
 import com.github.retrooper.packetevents.wrapper.PacketWrapper;
-import org.jetbrains.annotations.ApiStatus;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,6 +43,10 @@ public class WrapperPlayServerSpawnPlayer extends PacketWrapper<WrapperPlayServe
     private Vector3d position;
     private float yaw;
     private float pitch;
+
+    public int posX;
+    public int posY;
+    public int posZ;
 
     @Deprecated
     private ItemType item;
@@ -88,7 +91,11 @@ public class WrapperPlayServerSpawnPlayer extends PacketWrapper<WrapperPlayServe
         if (v1_9) {
             position = new Vector3d(readDouble(), readDouble(), readDouble());
         } else {
-            position = new Vector3d(readInt() / 32.0, readInt() / 32.0, readInt() / 32.0);
+            this.posX = this.readInt();
+            this.posY = this.readInt();
+            this.posZ = this.readInt();
+            this.position = new Vector3d((double)this.posX / 32.0D,
+                    (double)this.posY / 32.0D, (double)this.posZ / 32.0D);
         }
         yaw = readByte() / ROTATION_DIVISOR;
         pitch = readByte() / ROTATION_DIVISOR;

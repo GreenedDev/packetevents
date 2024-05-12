@@ -38,6 +38,10 @@ public class WrapperPlayServerEntityTeleport extends PacketWrapper<WrapperPlaySe
     private float yaw, pitch;
     private boolean onGround;
 
+    public int posX;
+    public int posY;
+    public int posZ;
+
     public WrapperPlayServerEntityTeleport(PacketSendEvent event) {
         super(event);
     }
@@ -63,7 +67,11 @@ public class WrapperPlayServerEntityTeleport extends PacketWrapper<WrapperPlaySe
             entityID = readVarInt();
         }
         if (serverVersion.isOlderThanOrEquals(ServerVersion.V_1_8_8)) {
-            position = new Vector3d((readInt() / 32.0), (readInt() / 32.0), (readInt() / 32.0));
+            this.posX = this.readInt();
+            this.posY = this.readInt();
+            this.posZ = this.readInt();
+            this.position = new Vector3d(
+                    (double)this.posX / 32.0D, (double)this.posY / 32.0D, (double)this.posZ / 32.0D);
         } else {
             position = new Vector3d(readDouble(), readDouble(), readDouble());
         }
