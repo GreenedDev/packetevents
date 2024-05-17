@@ -193,7 +193,11 @@ public class WrapperPlayServerChunkData extends PacketWrapper<WrapperPlayServerC
                     biomeDataBytes[i] = dataIn.readByte();
                 }
             } else {
-                biomeDataBytes = Arrays.copyOfRange(data, data.length - 256, data.length);
+                if (data.length >= 256) {
+                    biomeDataBytes = Arrays.copyOfRange(data, data.length - 256, data.length);
+                } else {
+                    hasBiomeData = false;
+                }
             }
         }
 
