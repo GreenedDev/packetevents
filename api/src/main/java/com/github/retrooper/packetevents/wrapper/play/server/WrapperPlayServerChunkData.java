@@ -196,11 +196,7 @@ public class WrapperPlayServerChunkData extends PacketWrapper<WrapperPlayServerC
                 // if cache-chunk-maps is enabled in paper, paper doesn't send any biome data on chunk unload
                 biomeDataBytes = data; // empty array
             } else {
-                if (data.length >= 256) {
-                    biomeDataBytes = Arrays.copyOfRange(data, data.length - 256, data.length);
-                } else {
-                    hasBiomeData = false;
-                }
+                biomeDataBytes = Arrays.copyOfRange(data, data.length - 256, data.length);
             }
         }
 
