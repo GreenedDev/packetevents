@@ -100,9 +100,21 @@ public class InternalPacketListener extends PacketListenerAbstract {
             NBTCompound registryDataTag = registryData.getRegistryData();
             NBTList<NBTCompound> list = null;
             if (registryDataTag != null) { // <1.20.5
-                list = registryDataTag
-                        .getCompoundTagOrNull(DIMENSION_TYPE_REGISTRY_KEY.toString())
-                        .getCompoundListTagOrNull("value");
+                //Handle dimension type
+                NBTCompound dimensionTypes = registryDataTag
+                        .getCompoundTagOrNull(DIMENSION_TYPE_REGISTRY_KEY.toString());
+                if (dimensionTypes == null) {
+                    dimensionTypes = registryDataTag
+                            .getCompoundTagOrNull(DIMENSION_TYPE_REGISTRY_KEY.getKey());
+                }
+                if (dimensionTypes != null) {
+                    list = dimensionTypes.getCompoundListTagOrNull("value");
+                }
+                if (list == null) {
+                    list = new NBTList<>(NBTType.COMPOUND);
+                    PacketEvents.getAPI().getLogger().warning("Can't find dimension type registry in registry data, "
+                            + "this may cause issues; available registries: " + registryDataTag.getTags().keySet());
+                }
             } else if (DIMENSION_TYPE_REGISTRY_KEY.equals(registryData.getRegistryKey())) { // >=1.20.5
                 // remap to legacy format
                 list = new NBTList<>(NBTType.COMPOUND);
@@ -137,10 +149,22 @@ public class InternalPacketListener extends PacketListenerAbstract {
             // Store world data
             NBTCompound dimensionCodec = joinGame.getDimensionCodec();
             if (dimensionCodec != null) {
-                NBTList<NBTCompound> list = dimensionCodec
-                        .getCompoundTagOrNull(DIMENSION_TYPE_REGISTRY_KEY.toString())
-                        .getCompoundListTagOrNull("value");
-                user.setWorldNBT(list);
+                NBTList<NBTCompound> types = null;
+                NBTCompound dimensionTypes = dimensionCodec
+                        .getCompoundTagOrNull(DIMENSION_TYPE_REGISTRY_KEY.toString());
+                if (dimensionTypes == null) {
+                    dimensionTypes = dimensionCodec
+                            .getCompoundTagOrNull(DIMENSION_TYPE_REGISTRY_KEY.getKey());
+                }
+                if (dimensionTypes != null) { // account for dimension type registry somehow going missing
+                    types = dimensionTypes.getCompoundListTagOrNull("value");
+                }
+                if (types == null) {
+                    types = new NBTList<>(NBTType.COMPOUND);
+                    PacketEvents.getAPI().getLogger().warning("Can't find dimension type registry in join packet, "
+                            + "this may cause issues; available registries: " + dimensionCodec.getTags().keySet());
+                }
+                user.setWorldNBT(types);
             }
 
             // Update world height

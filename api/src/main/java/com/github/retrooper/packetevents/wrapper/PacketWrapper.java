@@ -16,6 +16,30 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+
+/*
+ * MIT License
+
+ * Copyright (c) 2021 Andrew Steinborn
+
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+*/
 package com.github.retrooper.packetevents.wrapper;
 
 import com.github.retrooper.packetevents.PacketEvents;
@@ -33,6 +57,7 @@ import com.github.retrooper.packetevents.protocol.chat.LastSeenMessages;
 import com.github.retrooper.packetevents.protocol.chat.MessageSignature;
 import com.github.retrooper.packetevents.protocol.chat.Node;
 import com.github.retrooper.packetevents.protocol.chat.Parsers;
+import com.github.retrooper.packetevents.protocol.chat.Parsers.Parser;
 import com.github.retrooper.packetevents.protocol.chat.RemoteChatSession;
 import com.github.retrooper.packetevents.protocol.chat.SignedCommandArgument;
 import com.github.retrooper.packetevents.protocol.chat.filter.FilterMask;
@@ -78,6 +103,7 @@ import org.jetbrains.annotations.ApiStatus.Experimental;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.lang.reflect.Array;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.time.Instant;
@@ -266,6 +292,9 @@ public class PacketWrapper<T extends PacketWrapper<T>> {
         return buffer;
     }
 
+    public void setBuffer(Object buffer) {
+        this.buffer = buffer;
+    }
 
     /**
      * Gets the Packet ID for the current platform version
@@ -342,6 +371,14 @@ public class PacketWrapper<T extends PacketWrapper<T>> {
         ByteBufHelper.writeInt(buffer, value);
     }
 
+    public int readMedium() {
+        return ByteBufHelper.readMedium(buffer);
+    }
+
+    public void writeMedium(int value) {
+        ByteBufHelper.writeMedium(buffer, value);
+    }
+
     public int readVarInt() {
         int value = 0;
         int length = 0;
@@ -358,13 +395,27 @@ public class PacketWrapper<T extends PacketWrapper<T>> {
     }
 
     public void writeVarInt(int value) {
-        while (true) {
-            if ((value & ~0x7F) == 0) {
-                writeByte(value);
-                break;
-            }
-            writeByte((value & 0x7F) | 0x80);
-            value >>>= 7;
+        /* Got this code/optimization from https://steinborn.me/posts/performance/how-fast-can-you-write-a-varint/
+         * Copyright and permission notice above (above the class).
+         * Steinborn's post says that the code is under the MIT, last accessed 29.06.2024.
+         */
+        if ((value & (0xFFFFFFFF << 7)) == 0) {
+            writeByte(value);
+        } else if ((value & (0xFFFFFFFF << 14)) == 0) {
+            int w = (value & 0x7F | 0x80) << 8 | (value >>> 7);
+            writeShort(w);
+        } else if ((value & (0xFFFFFFFF << 21)) == 0) {
+            int w = (value & 0x7F | 0x80) << 16 | ((value >>> 7) & 0x7F | 0x80) << 8 | (value >>> 14);
+            writeMedium(w);
+        } else if ((value & (0xFFFFFFFF << 28)) == 0) {
+            int w = (value & 0x7F | 0x80) << 24 | (((value >>> 7) & 0x7F | 0x80) << 16)
+                    | ((value >>> 14) & 0x7F | 0x80) << 8 | (value >>> 21);
+            writeInt(w);
+        } else {
+            int w = (value & 0x7F | 0x80) << 24 | ((value >>> 7) & 0x7F | 0x80) << 16
+                    | ((value >>> 14) & 0x7F | 0x80) << 8 | ((value >>> 21) & 0x7F | 0x80);
+            writeInt(w);
+            writeByte(value >>> 28);
         }
     }
 
@@ -1106,6 +1157,16 @@ public class PacketWrapper<T extends PacketWrapper<T>> {
         writeOptional(legacyUpdate.getLastReceived(), PacketWrapper::writeLastMessagesEntry);
     }
 
+    public MessageSignature readMessageSignature() {
+        if(serverVersion.isNewerThanOrEquals(ServerVersion.V_1_19_3)) return new MessageSignature(readBytes(256));
+        else return new MessageSignature(readByteArray());
+    }
+
+    public void writeMessageSignature(MessageSignature messageSignature) {
+        writeBytes(messageSignature.getBytes());
+    }
+
+
     public MessageSignature.Packed readMessageSignaturePacked() {
         int id = readVarInt() - 1;
         if (id == -1) {
@@ -1141,13 +1202,13 @@ public class PacketWrapper<T extends PacketWrapper<T>> {
     }
 
     public List<SignedCommandArgument> readSignedCommandArguments() {
-        return readCollection(ArrayList::new, (_packet) -> new SignedCommandArgument(readString(), readByteArray()));
+        return readCollection(limitValue(ArrayList::new, 8), (_packet) -> new SignedCommandArgument(readString(16), readMessageSignature()));
     }
 
     public void writeSignedCommandArguments(List<SignedCommandArgument> signedArguments) {
         writeCollection(signedArguments, (_packet, argument) -> {
-            writeString(argument.getArgument());
-            writeByteArray(argument.getSignature());
+            writeString(argument.getArgument(), 16);
+            writeMessageSignature(argument.getSignature());
         });
     }
 
@@ -1225,18 +1286,23 @@ public class PacketWrapper<T extends PacketWrapper<T>> {
         writeInt(data.getDemand());
     }
 
-    public ChatMessage_v1_19_1.ChatTypeBoundNetwork readChatTypeBoundNetwork() {
-        int id = readVarInt();
-        ChatType type = ChatTypes.getById(getServerVersion().toClientVersion(), id);
+    public ChatType.Bound readChatTypeBoundNetwork() {
+        ChatType type = this.serverVersion.isNewerThanOrEquals(ServerVersion.V_1_21)
+                ? this.readMappedEntityOrDirect(ChatTypes::getById, ChatType::readDirect)
+                : this.readMappedEntity(ChatTypes::getById);
         Component name = readComponent();
         Component targetName = readOptional(PacketWrapper::readComponent);
-        return new ChatMessage_v1_19_1.ChatTypeBoundNetwork(type, name, targetName);
+        return new ChatType.Bound(type, name, targetName);
     }
 
-    public void writeChatTypeBoundNetwork(ChatMessage_v1_19_1.ChatTypeBoundNetwork chatType) {
-        writeVarInt(chatType.getType().getId(getServerVersion().toClientVersion()));
-        writeComponent(chatType.getName());
-        writeOptional(chatType.getTargetName(), PacketWrapper::writeComponent);
+    public void writeChatTypeBoundNetwork(ChatType.Bound chatFormatting) {
+        if (this.serverVersion.isNewerThanOrEquals(ServerVersion.V_1_21)) {
+            this.writeMappedEntityOrDirect(chatFormatting.getType(), ChatType::writeDirect);
+        } else {
+            this.writeMappedEntity(chatFormatting.getType());
+        }
+        writeComponent(chatFormatting.getName());
+        writeOptional(chatFormatting.getTargetName(), PacketWrapper::writeComponent);
     }
 
     public Node readNode() {
@@ -1247,16 +1313,18 @@ public class PacketWrapper<T extends PacketWrapper<T>> {
 
         int redirectNodeIndex = ((flags & 0x08) != 0) ? readVarInt() : 0;
         if (nodeType == 2) {
-            String name = readString();
-            int parserID = readVarInt();
-            List<Object> properties = Parsers.getById(this.serverVersion.toClientVersion(), parserID)
-                    .readProperties(this).orElse(null);
-            ResourceLocation suggestionType = ((flags & 0x10) != 0) ? readIdentifier() : null;
-            return new Node(flags, children, redirectNodeIndex, name, parserID, properties, suggestionType);
+            String name = this.readString();
+            Parser parser = this.serverVersion.isNewerThanOrEquals(ServerVersion.V_1_19)
+                    ? this.readMappedEntity(Parsers::getById)
+                    : Parsers.getByName(this.readIdentifier().toString());
+            List<Object> properties = parser.readProperties(this).orElse(null);
+            ResourceLocation suggestionType = ((flags & 0x10) != 0) ? this.readIdentifier() : null;
+            return new Node(flags, children, redirectNodeIndex, name, parser, properties, suggestionType);
         } else if (nodeType == 1) {
-            return new Node(flags, children, redirectNodeIndex, readString(), null, null, null);
+            String name = this.readString();
+            return new Node(flags, children, redirectNodeIndex, name, (Parser) null, null, null);
         } else {
-            return new Node(flags, children, redirectNodeIndex, null, null, null, null);
+            return new Node(flags, children, redirectNodeIndex, null, (Parser) null, null, null);
         }
     }
 
@@ -1267,10 +1335,16 @@ public class PacketWrapper<T extends PacketWrapper<T>> {
             writeVarInt(node.getRedirectNodeIndex());
         }
         node.getName().ifPresent(this::writeString);
-        node.getParserID().ifPresent(this::writeVarInt);
-        if (node.getProperties().isPresent()) {
-            Parsers.getById(this.serverVersion.toClientVersion(), node.getParserID().get())
-                    .writeProperties(this, node.getProperties().get());
+        if (node.getParser().isPresent()) {
+            Parser parser = node.getParser().get();
+            if (this.serverVersion.isNewerThanOrEquals(ServerVersion.V_1_19)) {
+                this.writeMappedEntity(parser);
+            } else {
+                this.writeIdentifier(parser.getName());
+            }
+            if (node.getProperties().isPresent()) {
+                parser.writeProperties(this, node.getProperties().get());
+            }
         }
         node.getSuggestionsType().ifPresent(this::writeIdentifier);
     }
@@ -1369,6 +1443,23 @@ public class PacketWrapper<T extends PacketWrapper<T>> {
         writeVarInt(list.size());
         for (K key : list) {
             writer.accept(this, key);
+        }
+    }
+
+    @SuppressWarnings("unchecked") // not unchecked
+    public <K> K[] readArray(Reader<K> reader, Class<K> clazz) {
+        int length = this.readVarInt();
+        K[] array = (K[]) Array.newInstance(clazz, length);
+        for (int i = 0; i < length; i++) {
+            array[i] = reader.apply(this);
+        }
+        return array;
+    }
+
+    public <K> void writeArray(K[] array, Writer<K> writer) {
+        this.writeVarInt(array.length);
+        for (K element : array) {
+            writer.accept(this, element);
         }
     }
 

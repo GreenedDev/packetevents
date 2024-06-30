@@ -1,11 +1,13 @@
 import com.github.retrooper.compression.strategy.JsonArrayCompressionStrategy
 import com.github.retrooper.compression.strategy.JsonObjectCompressionStrategy
 import com.github.retrooper.compression.strategy.JsonToNbtStrategy
+import com.github.retrooper.excludeAdventure
 
 plugins {
-    packetevents.`library-conventions`
     packetevents.`shadow-conventions`
+    packetevents.`library-conventions`
     `mapping-compression`
+    `pe-version`
 }
 
 // papermc repo + disableAutoTargetJvm needed for mockbukkit
@@ -18,9 +20,19 @@ java {
 }
 
 dependencies {
-    compileOnly(libs.bundles.adventure)
+    compileOnlyApi(libs.bundles.adventure)
+    implementation(libs.adventure.api)
+    api(project(":patch:adventure-text-serializer-gson", "shadow")) {
+        excludeAdventure()
+    }
+    api(libs.adventure.text.serializer.legacy) {
+        excludeAdventure()
+    }
+    compileOnly(libs.gson)
 
     testImplementation(libs.bundles.adventure)
+    testImplementation(project(":patch:adventure-text-serializer-gson"))
+    testImplementation(libs.adventure.text.serializer.legacy)
     testImplementation(project(":netty-common"))
     testImplementation(testlibs.mockbukkit)
     testImplementation(testlibs.slf4j)
@@ -49,6 +61,7 @@ mappingCompression {
         compress("command/argument_parser_mappings.json")
 
         compress("entity/entity_data_type_mappings.json")
+        compress("entity/painting_mappings.json")
 
         compress("item/item_armor_material_mappings.json")
         compress("item/item_banner_pattern_mappings.json")
@@ -58,6 +71,7 @@ mappingCompression {
         compress("item/item_potion_mappings.json")
         compress("item/item_trim_material_mappings.json")
         compress("item/item_trim_pattern_mappings.json")
+        compress("item/recipe_serializer_mappings.json")
 
         compress("particle/particle_type_mappings.json")
 
@@ -83,6 +97,15 @@ tasks {
         options {
             (this as CoreJavadocOptions).addBooleanOption("Xdoclint:none", true)
         }
+        mustRunAfter(generateVersionsFile)
+    }
+
+    sourcesJar {
+        mustRunAfter(generateVersionsFile)
+    }
+
+    withType<JavaCompile> {
+        dependsOn(generateVersionsFile)
     }
 
     processResources {
@@ -90,7 +113,26 @@ tasks {
         from(project.layout.buildDirectory.dir("mappings/generated").get())
     }
 
+    generateVersionsFile {
+        packageName = "com.github.retrooper.packetevents.util"
+    }
+
     test {
         useJUnitPlatform()
+    }
+
+    shadowJar {
+        exclude {
+            val path = it.path
+            path.startsWith("net/kyori") && !path.startsWith("net/kyori/adventure/text/serializer") && !path.startsWith("net/kyori/option")
+        }
+    }
+}
+
+publishing {
+    publications {
+        named<MavenPublication>("shadow") {
+            artifact(tasks["javadocJar"])
+        }
     }
 }
