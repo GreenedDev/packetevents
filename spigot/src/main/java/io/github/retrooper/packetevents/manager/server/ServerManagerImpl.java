@@ -37,7 +37,12 @@ public class ServerManagerImpl implements ServerManager {
         }
         //Our PEVersion class can parse this version and detect if it is a newer version than what is currently supported
         //and account for that properly
-        PEVersion version = PEVersion.fromString(bukkitVersion.substring(0, bukkitVersion.indexOf("-")));
+        PEVersion version;
+        if (bukkitVersion.contains("-")) { //some custom forks dont contain "-". they dont specify server version.
+            version = PEVersion.fromString(bukkitVersion.substring(0, bukkitVersion.indexOf("-")));
+        } else {
+            version = PEVersion.fromString(bukkitVersion);
+        }
         PEVersion latestVersion = PEVersion.fromString(ServerVersion.getLatest().getReleaseName());
         if (version.isNewerThan(latestVersion)) {
             //We do not support this version yet, so let us warn the user
